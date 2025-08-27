@@ -4,44 +4,45 @@ document.addEventListener('DOMContentLoaded', () => {
   // Seletores de Elementos
   // ========================
   const body = document.body;
+  const tableContainer = document.querySelector('.table-container'); // Adicionado seletor para o container da tabela
   const tableBody = document.getElementById('table-body');
   const searchInput = document.getElementById('search-input');
   const mainTitle = document.getElementById('main-title');
   const themeToggle = document.getElementById('theme-toggle');
+  const infoPopover = document.getElementById('info-popover');
+  const paginationControls = document.getElementById('pagination-controls');
   
-  // Modais
   const formModal = document.getElementById('form-modal');
   const resultModal = document.getElementById('result-modal');
   const filterModal = document.getElementById('filter-modal');
   const chunkModal = document.getElementById('chunk-modal');
-
-  // Formulários
+  const imageViewerModal = document.getElementById('image-viewer-modal');
   const farmacoForm = document.getElementById('farmaco-form');
   const filterForm = document.getElementById('filter-form');
   const chunkForm = document.getElementById('chunk-form');
 
-  // Estatísticas
   const statTotalItems = document.getElementById('stat-total-items');
   const statTotalValue = document.getElementById('stat-total-value');
   
-  let currentFarmacos = [];
+  // ========================
+  // Estado da Aplicação
+  // ========================
+  let state = {
+    allFarmacos: [],
+    displayedFarmacos: [],
+    sort: { key: 'id', direction: 'asc' },
+    pagination: { currentPage: 1, itemsPerPage: 50 },
+    activeInfoBtn: null, // NOVO: Guarda a referência do botão do popover ativo
+  };
 
   // ========================
-  // LÓGICA DE TEMA (NOVO)
+  // Lógica de Tema
   // ========================
   const applyTheme = (theme) => {
-      if (theme === 'dark') {
-          body.classList.add('dark-mode');
-      } else {
-          body.classList.remove('dark-mode');
-      }
+      body.classList.toggle('dark-mode', theme === 'dark');
       localStorage.setItem('pharma_theme', theme);
   };
-
-  const handleThemeToggle = () => {
-      const currentTheme = body.classList.contains('dark-mode') ? 'light' : 'dark';
-      applyTheme(currentTheme);
-  };
+  const handleThemeToggle = () => applyTheme(body.classList.contains('dark-mode') ? 'light' : 'dark');
 
   // ========================
   // Funções de Renderização
@@ -50,21 +51,85 @@ document.addEventListener('DOMContentLoaded', () => {
     statTotalItems.textContent = Farmacia.countFarmacos(farmacos);
     statTotalValue.textContent = Farmacia.calculateEstoqueValue(farmacos).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
+
+  const renderPagination = () => {
+      const { currentPage, itemsPerPage } = state.pagination;
+      const totalItems = state.displayedFarmacos.length;
+      const totalPages = Math.ceil(totalItems / itemsPerPage);
+      paginationControls.innerHTML = '';
+      if (totalPages <= 1) return;
+
+      const createButton = (text, page, isDisabled = false, isActive = false) => {
+          const btn = document.createElement('button');
+          btn.innerHTML = text;
+          btn.disabled = isDisabled;
+          if (isActive) btn.classList.add('active');
+          btn.addEventListener('click', () => {
+              state.pagination.currentPage = page;
+              render();
+          });
+          return btn;
+      };
+
+      paginationControls.appendChild(createButton('<<', 1, currentPage === 1));
+      paginationControls.appendChild(createButton('<', currentPage - 1, currentPage === 1));
+      
+      const pagesToShow = [];
+      if (totalPages <= 5) {
+          for (let i = 1; i <= totalPages; i++) pagesToShow.push(i);
+      } else {
+          pagesToShow.push(1);
+          if (currentPage > 3) pagesToShow.push('...');
+          if (currentPage > 2) pagesToShow.push(currentPage - 1);
+          if (currentPage !== 1 && currentPage !== totalPages) pagesToShow.push(currentPage);
+          if (currentPage < totalPages - 1) pagesToShow.push(currentPage + 1);
+          if (currentPage < totalPages - 2) pagesToShow.push('...');
+          pagesToShow.push(totalPages);
+      }
+      
+      const finalPages = [...new Set(pagesToShow)];
+
+      finalPages.forEach(p => {
+          if (p === '...') {
+              const span = document.createElement('span');
+              span.textContent = '...';
+              paginationControls.appendChild(span);
+          } else {
+              paginationControls.appendChild(createButton(p, p, false, p === currentPage));
+          }
+      });
+
+      paginationControls.appendChild(createButton('>', currentPage + 1, currentPage === totalPages));
+      paginationControls.appendChild(createButton('>>', totalPages, currentPage === totalPages));
+  };
   
-  const renderTable = (farmacos, title = "Estoque de Fármacos") => {
-    mainTitle.textContent = title;
+  const renderTable = () => {
+    const { currentPage, itemsPerPage } = state.pagination;
+    const sortedFarmacos = Farmacia.sortFarmacos(state.displayedFarmacos, state.sort.key, state.sort.direction);
+    
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const pageItems = sortedFarmacos.slice(startIndex, endIndex);
+
     tableBody.innerHTML = '';
-    if (Farmacia.countFarmacos(farmacos) === 0) {
-      tableBody.innerHTML = `<tr><td colspan="7" style="text-align:center;">Nenhum fármaco encontrado.</td></tr>`;
+    if (pageItems.length === 0) {
+      tableBody.innerHTML = `<tr><td colspan="8" style="text-align:center;">Nenhum fármaco encontrado.</td></tr>`;
       return;
     }
-    farmacos.forEach(farmaco => {
+
+    pageItems.forEach(farmaco => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td>${farmaco.id}</td>
         <td><img class="farmaco-img" src="${farmaco.imagemUrl}" alt="${farmaco.nome}" onerror="this.src='https://placehold.co/50x50/e1e1e1/909090?text=Sem+Img';"></td>
-        <td>${farmaco.nome}</td>
+        <td>
+            <div class="nome-cell-content">
+                <span>${farmaco.nome}</span>
+                <button class="info-btn" data-id="${farmaco.id}"><i data-feather="more-horizontal"></i></button>
+            </div>
+        </td>
         <td>${farmaco.marca}</td>
+        <td>${farmaco.dosagem}</td>
         <td>${farmaco.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</td>
         <td>${farmaco.quantidade}</td>
         <td>
@@ -72,71 +137,64 @@ document.addEventListener('DOMContentLoaded', () => {
           <button class="action-btn btn-delete" data-id="${farmaco.id}"><i data-feather="trash-2"></i></button>
         </td>
       `;
-      tr.querySelector('.btn-delete').addEventListener('click', handleDelete);
-      tr.querySelector('.btn-update').addEventListener('click', handleUpdate);
       tableBody.appendChild(tr);
     });
     feather.replace();
   };
 
-  // ========================
-  // Gerenciamento de Estado e Modais
-  // ========================
-  const updateState = (newFarmacos) => {
-      currentFarmacos = newFarmacos;
-      Farmacia.saveFarmacos(currentFarmacos);
-      renderTable(currentFarmacos);
-      renderStats(currentFarmacos);
+  const render = (title = "Estoque de Fármacos") => {
+      mainTitle.textContent = title;
+      renderTable();
+      renderPagination();
+      renderStats(state.allFarmacos);
+  };
+
+  const updateAllFarmacos = (newFarmacos) => {
+      state.allFarmacos = newFarmacos;
+      state.displayedFarmacos = newFarmacos;
+      state.pagination.currentPage = 1;
+      Farmacia.saveFarmacos(state.allFarmacos);
+      render();
   };
   
   const openModal = (modalElement) => { modalElement.style.display = 'flex'; };
   const closeModal = (modalElement) => { modalElement.style.display = 'none'; };
 
-  const openFormModal = (mode, farmaco = null) => {
+  const openFormModal = (mode, farmaco = {}) => {
     farmacoForm.reset();
     farmacoForm.dataset.mode = mode;
-    farmacoForm.dataset.id = farmaco ? farmaco.id : '';
+    farmacoForm.dataset.id = farmaco.id || '';
     document.getElementById('modal-title').textContent = mode === 'edit' ? 'Editar Fármaco' : 'Adicionar Novo Fármaco';
+    
     if (mode === 'edit' && farmaco) {
-        Object.keys(farmaco).forEach(key => {
-            const input = document.getElementById(key);
-            if (input) input.value = farmaco[key];
-        });
+        document.getElementById('nome').value = farmaco.nome || '';
+        document.getElementById('marca').value = farmaco.marca || '';
+        document.getElementById('dosagem').value = farmaco.dosagem || '';
+        document.getElementById('qtdPorCaixa').value = farmaco.qtdPorCaixa || '';
+        document.getElementById('preco').value = farmaco.preco || 0;
+        document.getElementById('quantidade').value = farmaco.quantidade || 0;
+        document.getElementById('categoria').value = farmaco.categoria || '';
+        document.getElementById('imagemUrl').value = farmaco.imagemUrl || '';
     }
     openModal(formModal);
   };
-
-  const openResultModal = (title, contentHTML) => {
-      document.getElementById('result-modal-title').textContent = title;
-      const contentDiv = document.getElementById('result-modal-content');
-      contentDiv.innerHTML = '';
-      contentDiv.appendChild(contentHTML);
-      openModal(resultModal);
-  };
-
+  
   // ========================
   // Handlers
   // ========================
-  const handleListAll = () => renderTable(currentFarmacos);
+  const handleListAll = () => {
+    state.displayedFarmacos = state.allFarmacos;
+    state.pagination.currentPage = 1;
+    state.pagination.itemsPerPage = 50; 
+    render("Estoque de Fármacos");
+  };
+
   const handleAdd = () => openFormModal('add');
 
   const handleReset = () => {
     if (confirm("Você tem certeza que quer apagar tudo e resetar para o estoque inicial?")) {
-      updateState(Farmacia.resetFarmacos());
+      updateAllFarmacos(Farmacia.resetFarmacos());
     }
-  };
-
-  const handleDelete = (event) => {
-    const id = Number(event.currentTarget.dataset.id);
-    if (confirm(`Tem certeza que quer excluir o fármaco com ID ${id}?`)) {
-        updateState(Farmacia.deleteFarmaco(currentFarmacos, id));
-    }
-  };
-  
-  const handleUpdate = (event) => {
-    const id = Number(event.currentTarget.dataset.id);
-    const farmacoToEdit = Farmacia.findFarmacoById(currentFarmacos, id);
-    if (farmacoToEdit) openFormModal('edit', farmacoToEdit);
   };
   
   const handleFormSubmit = (event) => {
@@ -150,57 +208,52 @@ document.addEventListener('DOMContentLoaded', () => {
           quantidade: parseInt(document.getElementById('quantidade').value),
           categoria: document.getElementById('categoria').value,
           imagemUrl: document.getElementById('imagemUrl').value,
+          dosagem: document.getElementById('dosagem').value,
+          qtdPorCaixa: document.getElementById('qtdPorCaixa').value,
       };
       if (mode === 'add') {
-          farmacoData.id = Date.now();
-          updateState(Farmacia.addFarmaco(currentFarmacos, farmacoData));
+          farmacoData.id = Farmacia.getNextId(state.allFarmacos);
+          updateAllFarmacos(Farmacia.addFarmaco(state.allFarmacos, farmacoData));
       } else if (mode === 'edit') {
-          const originalFarmaco = Farmacia.findFarmacoById(currentFarmacos, id);
+          const originalFarmaco = Farmacia.findFarmacoById(state.allFarmacos, id);
           const updatedData = { ...originalFarmaco, ...farmacoData };
-          updateState(Farmacia.updateFarmaco(currentFarmacos, id, updatedData));
+          updateAllFarmacos(Farmacia.updateFarmaco(state.allFarmacos, id, updatedData));
       }
       closeModal(formModal);
   };
 
   const handleSearch = (event) => {
       const searchTerm = event.target.value;
-      renderTable(Farmacia.searchFarmacos(currentFarmacos, searchTerm), `Resultados para "${searchTerm}"`);
+      state.displayedFarmacos = Farmacia.searchFarmacos(state.allFarmacos, searchTerm);
+      state.pagination.currentPage = 1;
+      render(`Resultados para "${searchTerm}"`);
   };
   
-  // ========================
-  // Handlers de Filtros e Funções Avançadas
-  // ========================
   const populateFilterValues = () => {
       const filterType = document.getElementById('filter-type').value;
-      const values = Farmacia.getUniqueValuesByKey(currentFarmacos, filterType);
+      const values = Farmacia.getUniqueValuesByKey(state.allFarmacos, filterType);
       const selectValue = document.getElementById('filter-value');
-      selectValue.innerHTML = '';
-      values.forEach(value => {
-          const option = document.createElement('option');
-          option.value = value;
-          option.textContent = value;
-          selectValue.appendChild(option);
-      });
+      selectValue.innerHTML = values.map(v => `<option value="${v}">${v}</option>`).join('');
   };
 
   filterForm.addEventListener('submit', (event) => {
       event.preventDefault();
       const type = document.getElementById('filter-type').value;
       const value = document.getElementById('filter-value').value;
-      const result = type === 'marca'
-          ? Farmacia.listFarmacosByMarca(currentFarmacos, value)
-          : Farmacia.listFarmacosByCategoria(currentFarmacos, value);
-      renderTable(result, `Filtrando por ${type}: ${value}`);
+      state.displayedFarmacos = type === 'marca'
+          ? state.allFarmacos.filter(f => f.marca === value)
+          : state.allFarmacos.filter(f => f.categoria === value);
+      state.pagination.currentPage = 1;
+      render(`Filtrando por ${type}: ${value}`);
       closeModal(filterModal);
   });
 
   const handleRemoveDuplicates = () => {
-      const originalCount = Farmacia.countFarmacos(currentFarmacos);
-      const farmacosSemDuplicatas = Farmacia.removeDuplicatesKeepLast(currentFarmacos);
-      const finalCount = Farmacia.countFarmacos(farmacosSemDuplicatas);
+      const originalCount = state.allFarmacos.length;
+      const farmacosSemDuplicatas = Farmacia.removeDuplicates(state.allFarmacos);
+      const finalCount = farmacosSemDuplicatas.length;
       const removedCount = originalCount - finalCount;
-      updateState(farmacosSemDuplicatas);
-
+      updateAllFarmacos(farmacosSemDuplicatas);
       const container = document.createElement('div');
       container.className = 'duplicates-result';
       container.innerHTML = `
@@ -215,62 +268,65 @@ document.addEventListener('DOMContentLoaded', () => {
       event.preventDefault();
       const n = parseInt(document.getElementById('chunk-size').value);
       if (n > 0) {
-          const paginas = Farmacia.chunkFarmacos(currentFarmacos, n);
-          const container = document.createElement('div');
-          container.className = 'chunk-result';
-          paginas.forEach((pagina, index) => {
-              const pageDiv = document.createElement('div');
-              pageDiv.className = 'page';
-              pageDiv.innerHTML = `<div class="page-header">Página ${index + 1} (${pagina.length} itens)</div>`;
-              const contentDiv = document.createElement('div');
-              contentDiv.className = 'page-content';
-              pagina.forEach(farmaco => {
-                  const item = document.createElement('p');
-                  item.textContent = `- ${farmaco.nome}`;
-                  contentDiv.appendChild(item);
-              });
-              pageDiv.appendChild(contentDiv);
-              container.appendChild(pageDiv);
-          });
-          openResultModal(`Fármacos Agrupados em ${paginas.length} Páginas`, container);
+          state.pagination.itemsPerPage = n;
+          state.pagination.currentPage = 1;
+          render(`Itens Agrupados em Páginas de ${n}`);
           closeModal(chunkModal);
       }
   });
 
-  const handleCheapestByMarca = () => {
-      const resultado = Farmacia.findCheapestByMarca(currentFarmacos);
-      const container = document.createElement('div');
-      Object.values(resultado).forEach(farmaco => {
-          const card = document.createElement('div');
-          card.className = 'result-card';
-          card.innerHTML = `
-              <img src="${farmaco.imagemUrl}" alt="${farmaco.nome}" onerror="this.src='https://placehold.co/60x60/e1e1e1/909090?text=Sem+Img';">
-              <div class="result-card-info">
-                  <h5>${farmaco.marca}</h5>
-                  <p>${farmaco.nome}</p>
-                  <p class="price">${farmaco.preco.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
-              </div>
-          `;
-          container.appendChild(card);
-      });
-      openResultModal('Fármaco Mais Barato por Marca', container);
+  const handleCheapestFarmaco = () => {
+      state.displayedFarmacos = Farmacia.findCheapestOfEachFarmaco(state.allFarmacos);
+      state.pagination.currentPage = 1;
+      render('Opções Mais Baratas de Cada Fármaco');
+  };
+  
+  const handleSort = (event) => {
+      const newKey = event.currentTarget.dataset.sortBy;
+      const { key, direction } = state.sort;
+      let newDirection = (newKey === key && direction === 'asc') ? 'desc' : 'asc';
+      state.sort = { key: newKey, direction: newDirection };
+      document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('asc', 'desc'));
+      event.currentTarget.classList.add(newDirection);
+      render();
   };
 
   // ========================
-  // Inicialização
+  // NOVA LÓGICA DE SCROLL PARA O POPOVER
+  // ========================
+  const handleTableScroll = () => {
+      if (!state.activeInfoBtn || !infoPopover.classList.contains('visible')) {
+          return;
+      }
+
+      const containerRect = tableContainer.getBoundingClientRect();
+      const buttonRect = state.activeInfoBtn.getBoundingClientRect();
+
+      // Verifica se o botão saiu da área visível do container
+      if (buttonRect.top < containerRect.top || buttonRect.bottom > containerRect.bottom) {
+          infoPopover.classList.remove('visible');
+          state.activeInfoBtn = null;
+      } else {
+          // Mantém o popover fixo ao botão durante a rolagem
+          infoPopover.style.left = `${buttonRect.left}px`;
+          infoPopover.style.top = `${buttonRect.bottom + 5}px`;
+      }
+  };
+
+  // ========================
+  // Inicialização e Event Listeners Globais
   // ========================
   const main = () => {
-    // Aplica o tema salvo antes de qualquer outra coisa
     const savedTheme = localStorage.getItem('pharma_theme') || 'light';
     applyTheme(savedTheme);
 
     const farmacosSalvos = Farmacia.loadFarmacos();
-    currentFarmacos = (Farmacia.countFarmacos(farmacosSalvos) === 0)
-      ? Farmacia.resetFarmacos()
-      : farmacosSalvos;
-    updateState(currentFarmacos);
+    state.allFarmacos = farmacosSalvos.length > 0 ? farmacosSalvos : Farmacia.resetFarmacos();
+    state.displayedFarmacos = state.allFarmacos;
+    
+    render();
 
-    // Conexão dos botões
+    // Listeners Estáticos
     themeToggle.addEventListener('click', handleThemeToggle);
     document.getElementById('btn-list-all').addEventListener('click', handleListAll);
     document.getElementById('btn-reset').addEventListener('click', handleReset);
@@ -282,20 +338,65 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('filter-type').addEventListener('change', populateFilterValues);
     searchInput.addEventListener('input', handleSearch);
     farmacoForm.addEventListener('submit', handleFormSubmit);
-    
-    // Funções Avançadas
     document.getElementById('btn-remove-duplicates').addEventListener('click', handleRemoveDuplicates);
     document.getElementById('btn-chunk').addEventListener('click', () => openModal(chunkModal));
-    document.getElementById('btn-cheapest-by-marca').addEventListener('click', handleCheapestByMarca);
+    document.getElementById('btn-cheapest-farmaco').addEventListener('click', handleCheapestFarmaco);
+    document.querySelectorAll('.sort-btn').forEach(btn => btn.addEventListener('click', handleSort));
 
-    // Fechar modais
-    document.querySelectorAll('[data-action="close-modal"]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.currentTarget.closest('.modal-overlay').style.display = 'none';
-        });
+    // Listener de scroll para o popover
+    tableContainer.addEventListener('scroll', handleTableScroll);
+
+    // Listener Global para fechar modais e popover
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.info-btn')) {
+            infoPopover.classList.remove('visible');
+            state.activeInfoBtn = null;
+        }
+        const modal = e.target.closest('.modal-overlay');
+        if (modal && (e.target.dataset.action === 'close-modal' || e.target === modal)) {
+            closeModal(modal);
+        }
+    });
+
+    // Listener Centralizado para Ações na Tabela
+    tableBody.addEventListener('click', (e) => {
+        const infoBtn = e.target.closest('.info-btn');
+        const img = e.target.closest('.farmaco-img');
+        const deleteBtn = e.target.closest('.btn-delete');
+        const updateBtn = e.target.closest('.btn-update');
+
+        if (infoBtn) {
+            const id = Number(infoBtn.dataset.id);
+            if (infoPopover.classList.contains('visible') && infoPopover.dataset.id == id) {
+                infoPopover.classList.remove('visible');
+                state.activeInfoBtn = null;
+                return;
+            }
+            const farmaco = Farmacia.findFarmacoById(state.allFarmacos, id);
+            if (farmaco) {
+                infoPopover.textContent = farmaco.qtdPorCaixa;
+                infoPopover.dataset.id = id;
+                const rect = infoBtn.getBoundingClientRect();
+                infoPopover.style.left = `${rect.left}px`;
+                infoPopover.style.top = `${rect.bottom + 5}px`;
+                infoPopover.classList.add('visible');
+                state.activeInfoBtn = infoBtn; // Guarda a referência do botão
+            }
+        } else if (img) {
+            document.getElementById('image-viewer-content').src = img.src;
+            openModal(imageViewerModal);
+        } else if (deleteBtn) {
+            const id = Number(deleteBtn.dataset.id);
+            if (confirm(`Tem certeza que quer excluir o fármaco com ID ${id}?`)) {
+                updateAllFarmacos(Farmacia.deleteFarmaco(state.allFarmacos, id));
+            }
+        } else if (updateBtn) {
+            const id = Number(updateBtn.dataset.id);
+            const farmacoToEdit = Farmacia.findFarmacoById(state.allFarmacos, id);
+            if (farmacoToEdit) openFormModal('edit', farmacoToEdit);
+        }
     });
   };
 
   main();
 });
-

@@ -4,14 +4,16 @@ const Farmacia = (() => {
   // ========================
   // Persistência
   // ========================
+  //Lê os dados do localStorage, retornar array de fármacos ou vazio
   const loadFarmacos = () => {
     const data = localStorage.getItem(STORAGE_KEY);
     return data ? JSON.parse(data) : [];
   };
-
+  //Salve os dados no localstorage no formato json
   const saveFarmacos = (farmacos) =>
     localStorage.setItem(STORAGE_KEY, JSON.stringify(farmacos));
 
+  //Limpa o LocalStorage
   const clearFarmacos = () => localStorage.removeItem(STORAGE_KEY);
     
   // LISTA DE FÁRMACOS COM ESTRUTURA CORRETA
@@ -75,17 +77,26 @@ const Farmacia = (() => {
   // ========================
   //  CRUD e Lógica de Negócio
   // ========================
-  const addFarmaco = (farmacos, newFarmaco) => [...farmacos, newFarmaco];
-  const updateFarmaco = (farmacos, id, updates) => farmacos.map(f => (f.id === id ? { ...f, ...updates } : f));
-  const deleteFarmaco = (farmacos, id) => farmacos.filter(f => f.id !== id);
-  const findFarmacoById = ([f, ...r], id) => f === undefined ? null : (f.id === id ? f : findFarmacoById(r, id));
-  const countFarmacos = ([_, ...r]) => _ === undefined ? 0 : 1 + countFarmacos(r);
-  
-  const getNextId = (farmacos) => {
-      if (!farmacos || farmacos.length === 0) return 1;
-      return farmacos.reduce((maxId, f) => Math.max(f.id, maxId), 0) + 1;
-  };
 
+  //Adiciona um fármaco novo
+  const addFarmaco = (farmacos, newFarmaco) => [...farmacos, newFarmaco];
+  //Altera um farmaco ja existente
+  const updateFarmaco = (farmacos, id, updates) => farmacos.map(f => (f.id === id ? { ...f, ...updates } : f));
+  //Apaga um farmaco da lista
+  const deleteFarmaco = (farmacos, id) => farmacos.filter(f => f.id !== id);
+  //Encontra o farmaco pelo id
+  const findFarmacoById = ([f, ...r], id) => f === undefined ? null : (f.id === id ? f : findFarmacoById(r, id));
+  //Calcula a quantidade de farmacos que tem no estoque
+  const countFarmacos = ([f, ...r]) => f === undefined ? 0 : 1 + countFarmacos(r);
+  //Ela retorna o próximo ID disponível para um novo fármaco
+  const getNextId = (farmacos) => {
+      if (!farmacos || farmacos.length === 0) return 1; //Verifica se o array farmacos é inexistente ou está vazio.
+      return farmacos.reduce((maxId, f) => Math.max(f.id, maxId), 0) + 1;
+      //Em cada iteração, compara o id do fármaco atual com o maior ID encontrado até agora (maxId).
+      //Retorna sempre o maior entre os dois
+      //Soma 1 pois o id utilizado será 1 a + q o maior encontrado
+  };
+  //Procura os farmacos pelo nome/marca/pricipioAtivo
   const searchFarmacos = (farmacos, term) => {
       const lowerTerm = term.toLowerCase();
       return farmacos.filter(f => 
@@ -94,56 +105,100 @@ const Farmacia = (() => {
           f.principioAtivo.toLowerCase().includes(lowerTerm)
       );
   };
-    
+  //Calcula o valor total do estoque (soma da qnt de cada farmaco * o preço de cada um)
   const calculateEstoqueValue = (farmacos) =>
-    farmacos.reduce((total, f) => total + (f.preco * f.quantidade), 0);
+  farmacos
+    .map(f => f.preco * f.quantidade) //Mapeia a multiplicaçao do preço e quantidadde
+    .filter(v => typeof v === 'number' && !isNaN(v)) //garante que é um numero
+    .reduce((total, v) => total + v, 0); //faz a soma com o acumulador
 
-  const getUniqueValuesByKey = (farmacos, key) =>
-    farmacos.reduce((acc, f) => {
-        const value = f[key];
-        if (value && !acc.includes(value)) acc.push(value);
-        return acc;
-    }, []).sort();
+  const calculateQtdeTotal = (farmacos) =>
+  farmacos
+    .map(f => f.quantidade) //mapeia somente a quantidade
+    .filter(q => typeof q === 'number') //garante que é um numero
+    .reduce((total, q) => total + q, 0); //faz a soma com o acumulador
 
-    const sortFarmacos = (farmacos, key, direction) => {
-        return [...farmacos].sort((a, b) => {
-            const valA = a[key];
-            const valB = b[key];
-            if (typeof valA === 'string') {
-                return direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
-            }
-            return direction === 'asc' ? valA - valB : valB - valA;
-        });
-    };
+  //lista com os valores únicos de uma determinada chave (key), ordenados em ordem alfabética
+  //Cria um conjunto(não aceita valores repetidos) de uma key especifica, filtra excluindo valores indefinidos/false
+  //Para finalizar retorna para um array com o .sort
+  const getUniqueValuesByKey = (farmacos, key) => 
+    [...new Set(farmacos.map(f => f[key]).filter(Boolean))].sort();; 
+                                                                              
+  //Ordena os farmacos com base em uma chave específica (key), em ordem crescente ou decrescente
+    const sortFarmacos = (farmacos, key, direction = 'asc') =>
+  [...farmacos].sort((a, b) => { //copia a lista e com o .sort cria uma comparação entre 2 elementos
+    const valA = a[key] ?? null; //Garante que se o valor for undefined se torne null
+    const valB = b[key] ?? null; // ''
+
+    const handleNull = () => //define a ordem do valor null
+      valA === null && valB !== null ? 1 : //se valA for null, a deve ficar depois de b
+      valB === null && valA !== null ? -1 : //se valA não for null, a deve ficar antes de b
+      0;
+  
+    const compareStrings = () =>  //Compara os valores se forem string
+      direction === 'asc'
+        ? valA.localeCompare(valB)
+        : valB.localeCompare(valA);
+
+        const compareNumbers = () =>     //Comparra os valores se forem numeros
+      direction === 'asc'
+        ? valA - valB
+        : valB - valA;
+
+    return valA === null || valB === null //se ouver valor null chama handleNull para decidir a ordem
+      ? (direction === 'asc' ? handleNull() : -handleNull()) //se a direção por descrescente inverte o resultado de handleNull
+      : (typeof valA === 'string' && typeof valB === 'string' //se os valores n forem nulo chama as funções de comparação
+          ? compareStrings()
+          : compareNumbers());
+  });
 
   // ========================
   // Funções Avançadas
   // ========================
-  const findCheapestOfEachFarmaco = (farmacos) => {
-    const farmacosByName = farmacos.reduce((acc, f) => {
-      const key = f.nome.toLowerCase();
-      if (!acc[key] || f.preco < acc[key].preco) {
-        acc[key] = f;
-      }
-      return acc;
-    }, {});
-    return Object.values(farmacosByName);
-  };
 
+  //Lista o farmaco mais barato por nome
+  const findCheapestOfEachFarmaco = (farmacos) =>
+  Object.values(
+    farmacos.reduce((acc, f) => { //acc para guardar sempre o farmaco de menor preço
+      const key = f.nome.toLowerCase(); //converte o nome do farmaco para letra minuscula
+      const existing = acc[key]; //verifica se ja existe um farmaco com esse nome no acumulador
+
+      return { //se o preço do novo for menor do q o do acumulador, guarda-se o novo, se não, mantém oq a está no acc
+        ...acc,
+        [key]: !existing || f.preco < existing.preco ? f : existing
+      };
+    }, {})
+  );
+  //Lista o farmaco mais barato de cada marca
+  const findCheapestOfEachMarca = (farmacos) =>
+  Object.values(
+    farmacos.reduce((acc, f) => { //acc para guardar sempre o farmaco de menor preço
+      const key = f.marca.toLowerCase(); //converte a marca para letra minuscula
+      const existing = acc[key]; //verifica se ja existe um farmaco dessa no acumulador
+
+      return { //se o preço do novo for menor do q o do acumulador, guarda-se o novo, se não, mantém oq a está no acc
+        ...acc,
+        [key]: !existing || f.preco < existing.preco ? f : existing
+      };
+    }, {})
+  );
+  //Remove farmacos repetidos, comparando o nome/marca/dosagem/qtdporcaixa
   const removeDuplicates = (farmacos) => {
-    const uniqueFarmacos = new Map();
+    const uniqueFarmacos = new Map(); //cria um map vazio
     farmacos.forEach(f => {
+      //Cria uma chave q junte as propriedades de cada farmaco e transforma para letra minuscula
       const key = `${f.nome}|${f.marca}|${f.dosagem}|${f.qtdPorCaixa}`.toLowerCase();
-      uniqueFarmacos.set(key, f);
-    });
-    return Array.from(uniqueFarmacos.values());
-  };
-
+      uniqueFarmacos.set(key, f); //.set adiciona essa key no map vazio
+      //como o map não aceita chaves duplicadas, sera guardada a mais recente    }
+    })
+    return Array.from(uniqueFarmacos.values()); //retorna um array com os valores do map(unicos)
+    }
+  //Retorna todas as funções definidas, podendo assim utiliza-las em outro arquivo(ui.js)
   return {
     loadFarmacos, saveFarmacos, clearFarmacos, resetFarmacos,
     addFarmaco, updateFarmaco, deleteFarmaco,
     findFarmacoById, countFarmacos, getNextId,
-    searchFarmacos, calculateEstoqueValue, getUniqueValuesByKey,
-    sortFarmacos, findCheapestOfEachFarmaco, removeDuplicates
-  };
-})();
+    searchFarmacos, calculateEstoqueValue,calculateQtdeTotal, calculateQtdeTotal, getUniqueValuesByKey,
+    sortFarmacos, findCheapestOfEachFarmaco,findCheapestOfEachMarca, removeDuplicates
+  }
+})
